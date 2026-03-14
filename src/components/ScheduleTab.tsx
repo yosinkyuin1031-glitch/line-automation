@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { MessageTemplate, ScheduledMessage, Contact } from "@/lib/types";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { MessageTemplate, ScheduledMessage, Contact, LineConfig } from "@/lib/types";
 
 interface Props {
   templates: MessageTemplate[];
   contacts: Contact[];
   scheduled: ScheduledMessage[];
+  config: LineConfig;
   onUpdate: (scheduled: ScheduledMessage[]) => void;
 }
 
@@ -17,7 +18,7 @@ const STATUS_LABELS: Record<ScheduledMessage["status"], { label: string; color: 
   cancelled: { label: "キャンセル", color: "bg-gray-100 text-gray-600" },
 };
 
-export default function ScheduleTab({ templates, contacts, scheduled, onUpdate }: Props) {
+export default function ScheduleTab({ templates, contacts, scheduled, config, onUpdate }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [templateId, setTemplateId] = useState("");
   const [targetType, setTargetType] = useState<"all" | "individual" | "segment">("all");
@@ -25,8 +26,86 @@ export default function ScheduleTab({ templates, contacts, scheduled, onUpdate }
   const [tagFilter, setTagFilter] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [autoSendEnabled, setAutoSendEnabled] = useState(true);
+  const [executing, setExecuting] = useState<string | null>(null);
+  const scheduledRef = useRef(scheduled);
+  scheduledRef.current = scheduled;
 
   const allTags = Array.from(new Set(contacts.flatMap((c) => c.tags))).sort();
+
+  // Auto-execute due schedules
+  const executeDueSchedules = useCallback(async () => {
+    if (!config.channelAccessToken || !autoSendEnabled) return;
+
+    const now = new Date();
+    const due = scheduledRef.current.filter(
+      (s) => s.status === "scheduled" && new Date(s.scheduledAt) <= now
+    );
+
+    for (const s of due) {
+      const template = templates.find((t) => t.id === s.templateId);
+      if (!template) continue;
+
+      setExecuting(s.id);
+
+      // Resolve target IDs
+      let targetIds: string[] | undefined;
+      if (s.targetType === "individual") {
+        targetIds = s.targetIds;
+      } else if (s.targetType === "segment" && s.segmentFilter?.tags) {
+        targetIds = contacts
+          .filter((c) => c.lineUserId && s.segmentFilter!.tags!.some((tag) => c.tags.includes(tag)))
+          .map((c) => c.lineUserId!);
+      }
+
+      try {
+        const res = await fetch("/api/execute-schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelAccessToken: config.channelAccessToken,
+            messages: template.messages.map((m) => ({
+              type: m.type === "flex" ? "flex" : "text",
+              text: m.text,
+              altText: m.altText,
+              contents: m.flexJson ? JSON.parse(m.flexJson) : undefined,
+            })),
+            targetType: s.targetType,
+            targetIds,
+            utageApiUrl: config.utageApiUrl,
+            utageApiKey: config.utageApiKey,
+            templateName: template.name,
+          }),
+        });
+
+        const result = await res.json();
+        const updated = scheduledRef.current.map((item) =>
+          item.id === s.id
+            ? {
+                ...item,
+                status: result.success ? ("sent" as const) : ("failed" as const),
+                sentAt: new Date().toISOString(),
+                sentCount: result.sentCount || 0,
+              }
+            : item
+        );
+        onUpdate(updated);
+      } catch {
+        const updated = scheduledRef.current.map((item) =>
+          item.id === s.id ? { ...item, status: "failed" as const, sentAt: new Date().toISOString() } : item
+        );
+        onUpdate(updated);
+      }
+      setExecuting(null);
+    }
+  }, [config, templates, contacts, autoSendEnabled, onUpdate]);
+
+  // Poll every 30 seconds
+  useEffect(() => {
+    executeDueSchedules();
+    const interval = setInterval(executeDueSchedules, 30000);
+    return () => clearInterval(interval);
+  }, [executeDueSchedules]);
 
   const resetForm = () => {
     setTemplateId("");
@@ -110,12 +189,24 @@ export default function ScheduleTab({ templates, contacts, scheduled, onUpdate }
               ({scheduled.filter((s) => s.status === "scheduled").length}件予約中)
             </span>
           </h3>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoSendEnabled}
+                onChange={(e) => setAutoSendEnabled(e.target.checked)}
+                className="accent-emerald-600"
+              />
+              <span className="text-xs text-gray-600">自動送信</span>
+            </label>
+            {executing && (
+              <span className="text-xs text-emerald-600 animate-pulse">送信中...</span>
+            )}
             <button
               onClick={() => setViewMode(viewMode === "list" ? "calendar" : "list")}
               className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
             >
-              {viewMode === "list" ? "カレンダー表示" : "リスト表示"}
+              {viewMode === "list" ? "カレンダー" : "リスト"}
             </button>
             <button
               onClick={() => {
@@ -230,9 +321,9 @@ export default function ScheduleTab({ templates, contacts, scheduled, onUpdate }
               />
             </div>
 
-            <div className="p-3 bg-yellow-50 rounded-lg">
-              <p className="text-xs text-yellow-700">
-                現在のバージョンではスケジュール予約はローカルに保存されます。自動送信機能は今後追加予定です。
+            <div className="p-3 bg-emerald-50 rounded-lg flex items-center justify-between">
+              <p className="text-xs text-emerald-700">
+                自動送信: 予約時刻になると自動的にLINEメッセージが送信されます（ブラウザを開いている必要があります）
               </p>
             </div>
 

@@ -66,6 +66,7 @@ export default function Home() {
             templates={templates}
             contacts={contacts}
             scheduled={scheduled}
+            config={config}
             onUpdate={(s) => { saveScheduled(s); setScheduled(s); }}
           />
         )}

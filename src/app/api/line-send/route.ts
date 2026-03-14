@@ -10,6 +10,9 @@ interface SendRequest {
     altText?: string;
     contents?: unknown;
   }>;
+  utageApiUrl?: string;
+  utageApiKey?: string;
+  templateName?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -61,6 +64,27 @@ export async function POST(req: NextRequest) {
         { error: err.message || `LINE API error ${res.status}` },
         { status: res.status }
       );
+    }
+
+    // 宴へ送信ログを同期
+    if (body.utageApiUrl && body.utageApiKey) {
+      try {
+        await fetch(body.utageApiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${body.utageApiKey}`,
+          },
+          body: JSON.stringify({
+            action: "line_message_sent",
+            template_name: body.templateName || "手動送信",
+            send_type: body.type,
+            sent_at: new Date().toISOString(),
+          }),
+        });
+      } catch {
+        // 宴同期失敗はLINE送信をブロックしない
+      }
     }
 
     return NextResponse.json({ success: true });
