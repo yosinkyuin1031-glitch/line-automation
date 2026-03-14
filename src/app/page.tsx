@@ -1,24 +1,32 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { TabType, MessageTemplate, LineConfig } from "@/lib/types";
-import { getConfig, saveConfig, getTemplates, saveTemplates } from "@/lib/storage";
+import { TabType, MessageTemplate, LineConfig, Contact, ScheduledMessage } from "@/lib/types";
+import { getConfig, saveConfig, getTemplates, saveTemplates, getContacts, saveContacts, getScheduled, saveScheduled } from "@/lib/storage";
 import TemplateTab from "@/components/TemplateTab";
 import SendTab from "@/components/SendTab";
+import ContactsTab from "@/components/ContactsTab";
+import ScheduleTab from "@/components/ScheduleTab";
 
 export default function Home() {
   const [tab, setTab] = useState<TabType>("templates");
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [config, setConfig] = useState<LineConfig>({ channelAccessToken: "", channelSecret: "" });
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [scheduled, setScheduled] = useState<ScheduledMessage[]>([]);
 
   useEffect(() => {
     setTemplates(getTemplates());
     setConfig(getConfig());
+    setContacts(getContacts());
+    setScheduled(getScheduled());
   }, []);
 
   const tabs: { id: TabType; label: string; icon: string }[] = [
     { id: "templates", label: "テンプレート", icon: "📝" },
     { id: "send", label: "送信", icon: "📤" },
+    { id: "contacts", label: "コンタクト", icon: "👥" },
+    { id: "schedule", label: "スケジュール", icon: "📅" },
     { id: "settings", label: "設定", icon: "⚙️" },
   ];
 
@@ -33,7 +41,7 @@ export default function Home() {
       </header>
 
       <nav className="bg-white border-b border-gray-200 sticky top-[52px] z-10">
-        <div className="max-w-4xl mx-auto px-4 flex gap-1">
+        <div className="max-w-4xl mx-auto px-4 flex gap-1 overflow-x-auto">
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
@@ -49,7 +57,18 @@ export default function Home() {
         {tab === "templates" && (
           <TemplateTab templates={templates} onUpdate={(t) => { saveTemplates(t); setTemplates(t); }} />
         )}
-        {tab === "send" && <SendTab templates={templates} config={config} />}
+        {tab === "send" && <SendTab templates={templates} config={config} contacts={contacts} />}
+        {tab === "contacts" && (
+          <ContactsTab contacts={contacts} onUpdate={(c) => { saveContacts(c); setContacts(c); }} />
+        )}
+        {tab === "schedule" && (
+          <ScheduleTab
+            templates={templates}
+            contacts={contacts}
+            scheduled={scheduled}
+            onUpdate={(s) => { saveScheduled(s); setScheduled(s); }}
+          />
+        )}
         {tab === "settings" && (
           <SettingsView config={config} onSave={(c) => { saveConfig(c); setConfig(c); }} />
         )}
@@ -63,6 +82,8 @@ function SettingsView({ config, onSave }: { config: LineConfig; onSave: (c: Line
   const [saved, setSaved] = useState(false);
   const [testResult, setTestResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [utageTestResult, setUtageTestResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [utageTesting, setUtageTesting] = useState(false);
 
   const save = () => { onSave(c); setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
@@ -79,6 +100,28 @@ function SettingsView({ config, onSave }: { config: LineConfig; onSave: (c: Line
       setTestResult(res.ok ? { type: "success", msg: `接続OK: ${data.botName} (@${data.basicId})` } : { type: "error", msg: data.error });
     } catch { setTestResult({ type: "error", msg: "接続失敗" }); }
     setTesting(false);
+  };
+
+  const testUtageConnection = async () => {
+    if (!c.utageApiUrl) return;
+    setUtageTesting(true); setUtageTestResult(null);
+    try {
+      const res = await fetch(c.utageApiUrl, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${c.utageApiKey || ""}`,
+          "Accept": "application/json",
+        },
+      });
+      if (res.ok) {
+        setUtageTestResult({ type: "success", msg: `接続OK (ステータス: ${res.status})` });
+      } else {
+        setUtageTestResult({ type: "error", msg: `接続失敗 (ステータス: ${res.status})` });
+      }
+    } catch {
+      setUtageTestResult({ type: "error", msg: "接続失敗: ネットワークエラーまたはCORSエラーの可能性があります" });
+    }
+    setUtageTesting(false);
   };
 
   return (
@@ -131,6 +174,13 @@ function SettingsView({ config, onSave }: { config: LineConfig; onSave: (c: Line
             placeholder="API Key"
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
         </div>
+        <button onClick={testUtageConnection} disabled={utageTesting || !c.utageApiUrl}
+          className="w-full py-2 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-medium hover:bg-yellow-200 disabled:opacity-50">
+          {utageTesting ? "テスト中..." : "宴 接続テスト"}
+        </button>
+        {utageTestResult && (
+          <p className={`text-xs px-3 py-2 rounded-lg ${utageTestResult.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{utageTestResult.msg}</p>
+        )}
       </div>
 
       <button onClick={save}

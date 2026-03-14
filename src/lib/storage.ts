@@ -1,4 +1,4 @@
-import { LineConfig, MessageTemplate, ScheduledMessage, Contact, StepMessage } from "./types";
+import { LineConfig, MessageTemplate, ScheduledMessage, Contact, StepMessage, SendHistoryEntry } from "./types";
 
 const KEYS = {
   config: "line-auto-config",
@@ -6,6 +6,7 @@ const KEYS = {
   scheduled: "line-auto-scheduled",
   contacts: "line-auto-contacts",
   steps: "line-auto-steps",
+  sendHistory: "line-auto-send-history",
 };
 
 function get<T>(key: string, fallback: T): T {
@@ -31,3 +32,13 @@ export function saveContacts(data: Contact[]) { set(KEYS.contacts, data); }
 
 export function getSteps(): StepMessage[] { return get(KEYS.steps, []); }
 export function saveSteps(data: StepMessage[]) { set(KEYS.steps, data); }
+
+export function getSendHistory(): SendHistoryEntry[] { return get(KEYS.sendHistory, []); }
+export function saveSendHistory(data: SendHistoryEntry[]) { set(KEYS.sendHistory, data); }
+export function addSendHistory(entry: SendHistoryEntry) {
+  const history = getSendHistory();
+  history.unshift(entry);
+  // Keep last 100 entries
+  if (history.length > 100) history.length = 100;
+  saveSendHistory(history);
+}

@@ -70,4 +70,15 @@ export interface StepItem {
   templateId: string;
 }
 
-export type TabType = "templates" | "send" | "contacts" | "step" | "settings";
+export interface SendHistoryEntry {
+  id: string;
+  templateId: string;
+  templateName: string;
+  sendType: "test" | "broadcast" | "multicast";
+  targetDescription: string;
+  success: boolean;
+  errorMessage?: string;
+  sentAt: string;
+}
+
+export type TabType = "templates" | "send" | "contacts" | "schedule" | "step" | "settings";
