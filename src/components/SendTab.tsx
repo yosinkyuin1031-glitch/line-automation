@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { MessageTemplate, LineConfig, Contact, SendHistoryEntry } from "@/lib/types";
 import { getSendHistory, addSendHistory } from "@/lib/storage";
 
@@ -19,9 +19,18 @@ export default function SendTab({ templates, config, contacts }: Props) {
   const [result, setResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [history, setHistory] = useState<SendHistoryEntry[]>([]);
 
-  useEffect(() => {
-    setHistory(getSendHistory());
+  const loadHistory = useCallback(async () => {
+    try {
+      const h = await getSendHistory();
+      setHistory(h);
+    } catch (e) {
+      console.error("送信履歴の読み込みエラー:", e);
+    }
   }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
@@ -99,8 +108,8 @@ export default function SendTab({ templates, config, contacts }: Props) {
         errorMessage: success ? undefined : data.error,
         sentAt: new Date().toISOString(),
       };
-      addSendHistory(entry);
-      setHistory(getSendHistory());
+      await addSendHistory(entry);
+      await loadHistory();
 
       if (success) {
         const msg =
@@ -124,8 +133,8 @@ export default function SendTab({ templates, config, contacts }: Props) {
         errorMessage: e instanceof Error ? e.message : "送信エラー",
         sentAt: new Date().toISOString(),
       };
-      addSendHistory(entry);
-      setHistory(getSendHistory());
+      await addSendHistory(entry);
+      await loadHistory();
 
       setResult({ type: "error", msg: e instanceof Error ? e.message : "送信エラー" });
     } finally {
